@@ -1,7 +1,6 @@
 /* eslint-disable jsx-a11y/label-has-associated-control */
 /* eslint-disable jsx-a11y/control-has-associated-label */
 import React, { useState, useEffect, useMemo } from 'react';
-import classNames from 'classnames';
 import { UserWarning } from './UserWarning';
 import {
   USER_ID,
@@ -11,32 +10,41 @@ import {
   deleteTodo,
 } from './api/todos';
 import { Todo } from './types/Todo';
+import { FilterType, ErrorMessages } from './types/enums';
+import { Header } from './component/Header/Header';
+import { TodoList } from './component/TodoList/TodoList';
+import { Footer } from './component/Footer/Footer';
+import { ErrorNotification } from './component/Error/Error';
 
 export const App: React.FC = () => {
   const [todos, setTodos] = useState<Todo[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [filter, setFilter] = useState<'all' | 'active' | 'completed'>('all');
+  // Використовуємо Enum для стейту
+  const [filter, setFilter] = useState<FilterType>(FilterType.All);
   const [title, setTitle] = useState('');
   const [tempTodos, setTempTodos] = useState<number[]>([]);
+
+  // Хелпер для показу помилок з таймером
+  const showError = (msg: ErrorMessages) => {
+    setError(msg);
+    setTimeout(() => setError(null), 3000);
+  };
 
   useEffect(() => {
     setLoading(true);
     getTodos()
       .then(setTodos)
-      .catch(() => {
-        setError('Unable to load todos');
-        setTimeout(() => setError(null), 3000);
-      })
+      .catch(() => showError(ErrorMessages.Load))
       .finally(() => setLoading(false));
   }, []);
 
   const visibleTodos = useMemo(() => {
     return todos.filter(todo => {
       switch (filter) {
-        case 'active':
+        case FilterType.Active:
           return !todo.completed;
-        case 'completed':
+        case FilterType.Completed:
           return todo.completed;
         default:
           return true;
@@ -46,10 +54,7 @@ export const App: React.FC = () => {
 
   const toggleAll = () => {
     const activeTodos = todos.filter(todo => !todo.completed);
-    const areAllCompleted = activeTodos.length === 0;
-    const shouldBeCompleted = !areAllCompleted;
-
-    // Оптимізація: оновлюємо тільки ті, що мають неправильний статус
+    const shouldBeCompleted = activeTodos.length > 0;
     const todosToUpdate = todos.filter(
       todo => todo.completed !== shouldBeCompleted,
     );
@@ -59,10 +64,9 @@ export const App: React.FC = () => {
     }
 
     setLoading(true);
-
-    const promises = todosToUpdate.map(todo => {
-      return updateTodo({ ...todo, completed: shouldBeCompleted });
-    });
+    const promises = todosToUpdate.map(todo =>
+      updateTodo({ ...todo, completed: shouldBeCompleted }),
+    );
 
     Promise.all(promises)
       .then(() => {
@@ -74,20 +78,14 @@ export const App: React.FC = () => {
           ),
         );
       })
-      .catch(() => {
-        setError('Unable to update todos');
-        setTimeout(() => setError(null), 3000);
-      })
-      .finally(() => {
-        setLoading(false);
-      });
+      .catch(() => showError(ErrorMessages.Update))
+      .finally(() => setLoading(false));
   };
 
   const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault();
     if (!title.trim()) {
-      setError('Title should not be empty');
-      setTimeout(() => setError(null), 3000);
+      showError(ErrorMessages.EmptyTitle);
 
       return;
     }
@@ -102,71 +100,47 @@ export const App: React.FC = () => {
         setTodos([...todos, newTodo]);
         setTitle('');
       })
-      .catch(() => {
-        setError('Unable to add a todo');
-        setTimeout(() => setError(null), 3000);
-      })
-      .finally(() => {
-        setLoading(false);
-      });
+      .catch(() => showError(ErrorMessages.Add))
+      .finally(() => setLoading(false));
   };
 
   const handleUpdate = (todo: Todo) => {
     setTempTodos(prev => [...prev, todo.id]);
-
     updateTodo({ ...todo, completed: !todo.completed })
       .then(updatedTodo => {
         setTodos(currentTodos =>
           currentTodos.map(t => (t.id === todo.id ? updatedTodo : t)),
         );
       })
-      .catch(() => {
-        setError('Unable to update a todo');
-        setTimeout(() => setError(null), 3000);
-      })
-      .finally(() => {
-        setTempTodos(prev => prev.filter(id => id !== todo.id));
-      });
+      .catch(() => showError(ErrorMessages.Update))
+      .finally(() => setTempTodos(prev => prev.filter(id => id !== todo.id)));
   };
 
   const handleDelete = (todoId: number) => {
     setTempTodos(prev => [...prev, todoId]);
-
     deleteTodo(todoId)
       .then(() => {
         setTodos(currentTodos =>
           currentTodos.filter(todo => todo.id !== todoId),
         );
       })
-      .catch(() => {
-        setError('Unable to delete a todo');
-        setTimeout(() => setError(null), 3000);
-      })
-      .finally(() => {
-        setTempTodos(prev => prev.filter(id => id !== todoId));
-      });
+      .catch(() => showError(ErrorMessages.Delete))
+      .finally(() => setTempTodos(prev => prev.filter(id => id !== todoId)));
   };
 
   const clearCompleted = () => {
-    const completedTodos = todos.filter(todo => todo.completed);
-    const idsToDelete = completedTodos.map(todo => todo.id);
+    const idsToDelete = todos.filter(t => t.completed).map(t => t.id);
 
     if (idsToDelete.length === 0) {
       return;
     }
 
     setTempTodos(prev => [...prev, ...idsToDelete]);
-
-    const promises = idsToDelete.map(id => deleteTodo(id));
-
-    Promise.all(promises)
+    Promise.all(idsToDelete.map(id => deleteTodo(id)))
       .then(() => {
-        setTodos(currentTodos => currentTodos.filter(todo => !todo.completed));
+        setTodos(currentTodos => currentTodos.filter(t => !t.completed));
       })
-      .catch(() => {
-        setError('Unable to delete a todo');
-        setTimeout(() => setError(null), 3000);
-      })
+      .catch(() => showError(ErrorMessages.Delete))
       .finally(() => {
         setTempTodos(prev => prev.filter(id => !idsToDelete.includes(id)));
       });
@@ -181,146 +155,31 @@ export const App: React.FC = () => {
       <h1 className="todoapp__title">todos</h1>
 
       <div className="todoapp__content">
-        <header className="todoapp__header">
-          {todos.length > 0 && (
-            <button
-              type="button"
-              className={classNames('todoapp__toggle-all', {
-                active: todos.length > 0 && todos.every(todo => todo.completed),
-              })}
-              data-cy="ToggleAllButton"
-              onClick={toggleAll}
-            />
-          )}
-
-          <form onSubmit={handleSubmit}>
-            <input
-              value={title}
-              onChange={event => setTitle(event.target.value)}
-              data-cy="NewTodoField"
-              type="text"
-              className="todoapp__new-todo"
-              placeholder="What needs to be done?"
-              disabled={loading}
-            />
-          </form>
-        </header>
-
-        <section className="todoapp__main" data-cy="TodoList">
-          {visibleTodos.map(todo => (
-            <div
-              data-cy="Todo"
-              className={classNames('todo', { completed: todo.completed })}
-              key={todo.id}
-            >
-              <label className="todo__status-label">
-                <input
-                  data-cy="TodoStatus"
-                  type="checkbox"
-                  className="todo__status"
-                  checked={todo.completed}
-                  onChange={() => handleUpdate(todo)}
-                />
-              </label>
-
-              <span data-cy="TodoTitle" className="todo__title">
-                {todo.title}
-              </span>
-
-              <button
-                type="button"
-                className="todo__remove"
-                data-cy="TodoDelete"
-                onClick={() => handleDelete(todo.id)}
-              >
-                ×
-              </button>
-
-              {/* Виправлений лоадер */}
-              <div
-                data-cy="TodoLoader"
-                className={classNames('modal overlay', {
-                  'is-active': tempTodos.includes(todo.id) || loading,
-                })}
-              >
-                <div className="modal-background has-background-white-ter" />
-                <div className="loader" />
-              </div>
-            </div>
-          ))}
-        </section>
-
-        {/* Футер показуємо тільки якщо є завдання */}
-        {todos.length > 0 && (
-          <footer className="todoapp__footer" data-cy="Footer">
-            <span className="todo-count" data-cy="TodosCounter">
-              {todos.filter(t => !t.completed).length} items left
-            </span>
-
-            <nav className="filter" data-cy="Filter">
-              <a
-                href="#/"
-                className={classNames('filter__link', {
-                  selected: filter === 'all',
-                })}
-                data-cy="FilterLinkAll"
-                onClick={() => setFilter('all')}
-              >
-                All
-              </a>
-
-              <a
-                href="#/active"
-                className={classNames('filter__link', {
-                  selected: filter === 'active',
-                })}
-                data-cy="FilterLinkActive"
-                onClick={() => setFilter('active')}
-              >
-                Active
-              </a>
-
-              <a
-                href="#/completed"
-                className={classNames('filter__link', {
-                  selected: filter === 'completed',
-                })}
-                data-cy="FilterLinkCompleted"
-                onClick={() => setFilter('completed')}
-              >
-                Completed
-              </a>
-            </nav>
-
-            <button
-              type="button"
-              className="todoapp__clear-completed"
-              data-cy="ClearCompletedButton"
-              disabled={!todos.some(t => t.completed)}
-              onClick={clearCompleted}
-            >
-              Clear completed
-            </button>
-          </footer>
-        )}
-      </div>
-
-      {/* Виправлений блок помилок */}
-      <div
-        data-cy="ErrorNotification"
-        className={classNames(
-          'notification is-danger is-light has-text-weight-normal',
-          { hidden: !error },
-        )}
-      >
-        <button
-          data-cy="HideErrorButton"
-          type="button"
-          className="delete"
-          onClick={() => setError(null)}
+        <Header
+          todos={todos}
+          title={title}
+          setTitle={setTitle}
+          loading={loading}
+          onAdd={handleSubmit}
+          onToggleAll={toggleAll}
         />
-        {error}
+
+        <TodoList
+          todos={visibleTodos}
+          tempTodos={tempTodos}
+          onDelete={handleDelete}
+          onUpdate={handleUpdate}
+        />
+
+        <Footer
+          todos={todos}
+          filter={filter}
+          setFilter={setFilter}
+          onClearCompleted={clearCompleted}
+        />
       </div>
+
+      <ErrorNotification error={error} onClose={() => setError(null)} />
     </div>
   );
 };
